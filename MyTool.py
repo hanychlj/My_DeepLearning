@@ -5,6 +5,27 @@ from torchvision import transforms
 import matplotlib.pyplot as plt
 from IPython import display
 from IPython.display import set_matplotlib_formats
+import hashlib
+import os
+import tarfile
+import zipfile
+import requests
+
+DATA_HUB = dict()
+DATA_URL = 'http://d2l-data.s3-accelerate.amazonaws.com/'
+
+# 定义线性回归模型
+def linreg(X, w, b):
+    return torch.matmul(X, w) + b
+
+# 定义平方损失函数
+def squared_loss(y_hat, y):
+    return (y_hat - y.reshape(y_hat.shape)) ** 2 / 2
+
+# 构造一个PyTorch数据迭代器
+def load_array(data_arrays, batch_size, is_train=True): 
+    dataset = data.TensorDataset(*data_arrays)
+    return data.DataLoader(dataset, batch_size, shuffle=is_train)
 
 # 生成合成数据
 def synthetic_data(w, b, num_examples): # 与之前相同
@@ -189,4 +210,72 @@ def train_softmax(net, train_iter, test_iter, loss, num_epochs, updater):
     assert train_loss < 0.5, train_loss
     assert train_acc <= 1 and train_acc > 0.7, train_acc
     assert test_acc <= 1 and test_acc > 0.7, test_acc
+
+# 预测函数
+def predict_softmax(net, test_iter, n=6):
+    for X, y in test_iter:
+        break
+    trues = get_fashion_mnist_labels(y)
+    preds = get_fashion_mnist_labels(net(X).argmax(dim=1))
+    titles = [true +'\n' + pred for true, pred in zip(trues, preds)]
+    show_images(X[0:n].reshape((n, 28, 28)), 1, n, titles=titles[0:n])
+    
+# 评估给定数据集上模型的损失
+def evaluate_loss(net, data_iter, loss):
+    metric = Accumulator(2)  # 损失的总和,样本数量
+    for X, y in data_iter:
+        out = net(X)
+        y = y.reshape(out.shape)
+        l = loss(out, y)
+        metric.add(l.sum(), l.numel())
+    return metric[0] / metric[1]
+
+# 下载一个DATA_HUB中的文件，返回本地文件名
+def download(name, cache_dir=os.path.join('..', 'data')):  
+    assert name in DATA_HUB, f"{name} 不存在于 {DATA_HUB}"
+    url, sha1_hash = DATA_HUB[name]
+    os.makedirs(cache_dir, exist_ok=True)
+    fname = os.path.join(cache_dir, url.split('/')[-1])
+    if os.path.exists(fname):
+        sha1 = hashlib.sha1()
+        with open(fname, 'rb') as f:
+            while True:
+                data = f.read(1048576)
+                if not data:
+                    break
+                sha1.update(data)
+        if sha1.hexdigest() == sha1_hash:
+            return fname  # 命中缓存
+    print(f'正在从{url}下载{fname}...')
+    r = requests.get(url, stream=True, verify=True)
+    with open(fname, 'wb') as f:
+        f.write(r.content)
+    return fname
+
+# 下载并解压zip/tar文件
+def download_extract(name, folder=None):
+    fname = download(name)
+    base_dir = os.path.dirname(fname)
+    data_dir, ext = os.path.splitext(fname)
+    if ext == '.zip':
+        fp = zipfile.ZipFile(fname, 'r')
+    elif ext in ('.tar', '.gz'):
+        fp = tarfile.open(fname, 'r')
+    else:
+        assert False, '只有zip/tar文件可以被解压缩'
+    fp.extractall(base_dir)
+    return os.path.join(base_dir, folder) if folder else data_dir
+
+# 下载DATA_HUB中的所有文件
+def download_all(): 
+    for name in DATA_HUB:
+        download(name)
+
+DATA_HUB['kaggle_house_train'] = (  #@save
+    DATA_URL + 'kaggle_house_pred_train.csv',
+    '585e9cc93e70b39160e7921475f9bcd7d31219ce')
+
+DATA_HUB['kaggle_house_test'] = (  #@save
+    DATA_URL + 'kaggle_house_pred_test.csv',
+    'fa19780a7b011d9b009e8bff8e99922a8ee2eb90')
 
